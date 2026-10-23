@@ -19,7 +19,7 @@ Aurora is a custom OS for the Nintendo 3DS. **Current version: Beta 7 v0.1.6.**
 
 | Area | State | Notes |
 |------|-------|-------|
-| Home Menu + Settings | working | app grid, accent colours, three languages, About page with More Info (eMMC CID) and credits; Settings > Reset deletes `USER.dat` so the setup runs again |
+| Home Menu + Settings | working | app grid, accent colors, three languages, About page with More Info (eMMC CID) and credits; Settings > Reset deletes `USER.dat` so the setup runs again |
 | Home Menu pages and folders | working | up to 12 pages of 15; folders two levels deep; moving apps by dragging or with the D-pad; Power in the bar; saved in `SD:/Aurora/HomeMenu.txt`; see [`docs/home.md`](docs/home.md) |
 | System menu | new | **L + Down + Select** on any screen and inside apps: Return to Home, Power Off, Cancel ("Aurore Tools"). In apps the ARM11 core draws it; Return to Home works in apps built with the Beta 7 runtimes (C SDK 1.2, Auric), and an older app says to press HOME instead; see [`docs/home.md`](docs/home.md) |
 | Icons, wallpaper, type | working | real art + Figtree from SD, with accents (the built-in 8x8 font draws accented letters too); a message at boot when `assets.pak` is missing or does not match; see [`docs/assets.md`](docs/assets.md) |
@@ -52,7 +52,7 @@ Aurora is a custom OS for the Nintendo 3DS. **Current version: Beta 7 v0.1.6.**
 | Wi-Fi | working | Settings > Wi-Fi searches, saves a network and joins it: open and WPA2-PSK networks, the password typed on the console, an address over DHCP (New 3DS, 2026-10-03). The terminal's `ping` looks up names and pings any address. The firmware is copied from the console's own NAND the first time (read only; works on hardware). Core 114 adds a small TCP client for one HTTP exchange at a time, which Aurora accounts use (works on hardware, 2026-10-04); core 115 reads it faster, about 160 KB/s for aShop downloads (New 3DS, 2026-10-08). Auric and C apps can use the network too. Not yet: WPA3, TLS: [`docs/wifi.md`](docs/wifi.md) |
 
 The UI renders into a cached FCRAM backbuffer and the GPU moves each finished
-screen to the panel in one blit, rather than rasterising straight into uncached
+screen to the panel in one blit, rather than rasterizing straight into uncached
 VRAM. Icons and text are pre-rendered at the exact size they are drawn, so the
 console scales nothing at runtime. Moving between screens is animated: a slide
 is one GPU copy per frame, so it costs the ARM9 nothing.
@@ -135,7 +135,7 @@ loaded at boot by `src/assets.c`. Run `make assets` after changing either.
 ## License
 Aurora is licensed **GPL-3.0** (see `LICENSE`). Two drivers are separate
 **GPL-2.0** components, because GPL-2.0-only is incompatible with GPL-3.0 and
-they keep the licence of the code they derive from:
+they keep the license of the code they derive from:
 
 - **Wi-Fi driver**: see `LICENSE.wifi` and `docs/wifi.md` "License and credits".
   Derives from the ath6kl legacy driver as ported to the 3DS by **Octoblimp**.
@@ -144,7 +144,7 @@ they keep the licence of the code they derive from:
 `LICENSE.wifi` holds the GPL-2.0 text used by both of those components.
 
 The New 3DS clock switch in `src/os/Clock11.c` follows the register sequence in
-fastboot3DS and libn3ds (derrek and profi200, GPL-3.0, the same licence as
+fastboot3DS and libn3ds (derrek and profi200, GPL-3.0, the same license as
 Aurora); see `docs/gpu.md` "Render test".
 
 The UI font is **Figtree** under the **SIL Open Font License 1.1** (Copyright
@@ -191,4 +191,4 @@ distribution; it is kept as-is and recorded here and in `docs/assets.md`.
 - More in [`docs/home.md`](docs/home.md)
 
 ### AI Disclaimer:
-AI was used in the making of most documentation and some in-code comments. AI was used for the writing of arm assembly, Mainstream Corperate AI was not used. A local model was used on the PC of @DisLoPik.
+AI was used in the making of most documentation and some in-code comments. AI was used for the writing of arm assembly, Mainstream Corporate AI was not used. A local model was used on the PC of @DisLoPik.
