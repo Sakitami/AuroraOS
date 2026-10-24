@@ -11,8 +11,7 @@ static inline int aurora_lid_is_closed(void) {
   return (AURORA_GPIO1_DATA & AURORA_LID_CLOSED) != 0;
 }
 
-/* Runtime code is cooperative, so pause at its normal input/wait checkpoints.
- * Return whether we waited, allowing the caller to reset input/timing state. */
+/* Returns whether it waited, so the caller can re-base its input and timing. */
 static inline int aurora_lid_wait_open(void) {
   int waited = 0;
   while (aurora_lid_is_closed()) {

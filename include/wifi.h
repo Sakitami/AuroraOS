@@ -207,7 +207,7 @@ typedef struct {
   volatile uint32_t wpa_m1, wpa_m3, wpa_g1, wpa_bad_mic;
   volatile uint32_t wpa_variant;
   volatile uint32_t wpa_keys;
-  /* The bus in network operations (from core 115): the SDIO clock divider
+  /* The bus in network operations: the SDIO clock divider
    * (CLKCTL bits 7:0; 0x20 is the 523 kHz it starts at, 0x01 is 16.8 MHz),
    * 1 while frames are read a block per CMD53 rather than a byte per CMD52,
    * and the commands that failed since the core started. */

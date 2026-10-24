@@ -237,7 +237,7 @@ static const unsigned char icon_music_bits[ICON_SIZE * ICON_ROW_BYTES] = {
     0x00, 0x00, 0x00, 0x00,
 };
 
-/* Cube, for the 3D Cube tile. */
+/* Cube, for the 3D Model tile. */
 static const unsigned char icon_cube_bits[ICON_SIZE * ICON_ROW_BYTES] = {
     0x00, 0x00, 0x00, 0x00,
     0x00, 0x00, 0x00, 0x00,

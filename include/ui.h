@@ -51,8 +51,8 @@ void ui_wallpaper(volatile u8 *fb, int w, int h, int sh);
 void ui_bg_build(void);
 void ui_bg_invalidate(void);
 
-/* Install a pair of decoded, exact-size screen wallpapers. The card must be
- * mounted; paths point to PNG files and the images are copied into UI memory. */
+/* Decodes two PNGs of exactly the screens' sizes into the wallpaper cache; the
+ * card must be mounted. 0 if either fails. */
 int ui_theme_load(const char *top_path, const char *bottom_path);
 void ui_theme_clear(void);
 

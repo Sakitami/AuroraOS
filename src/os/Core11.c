@@ -167,9 +167,6 @@ static void core11_park(AudioCtrl *ct) {
   ((void (*)(void))AUDIO_PARK_ADDR)();
 }
 
-/* Blank the panel while closed, without stopping this command-service core.
- * ARM9 runtimes pause at their input and wait checkpoints and continue when
- * the shell opens. */
 void core11_sleep_poll(void) {
   if (MMIO8(GPIO1_DATA) & GPIO1_SHELL_CLOSED) {
     if (!lid_blanked) {

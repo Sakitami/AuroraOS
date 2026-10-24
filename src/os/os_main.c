@@ -5,6 +5,7 @@
 #include "anim.h"
 #include "model3d.h"
 #include "files.h"
+#include "fileops.h"
 #include "fwdump.h"
 #include "fileview.h"
 #include "model.h"
@@ -40,10 +41,14 @@ void delay(volatile u32 cycles) {
     __asm__ volatile("nop");
 }
 
-/* HID pad bits 0..9 are A/B/Select/Start/D-pad/R/L; 10 and 11 are X and Y. */
+/* Set by whichever get_keys() call waited for the lid, and kept until
+ * get_keys_down() acts on it: screens also call get_keys() directly. */
 static int lid_resumed;
+
+/* HID pad bits 0..9 are A/B/Select/Start/D-pad/R/L; 10 and 11 are X and Y. */
 u32 get_keys(void) {
-  lid_resumed = aurora_lid_wait_open();
+  if (aurora_lid_wait_open())
+    lid_resumed = 1;
   return ~REG_HID_PAD & 0xFFF;
 }
 
@@ -102,8 +107,7 @@ u32 get_keys_down(void) {
   u32 physical = get_keys();
   u32 cpad = cpad_directions();
   if (lid_resumed) {
-    /* Ignore keys held through sleep so opening the lid does not trigger an
-     * accidental action. */
+    /* What is held as the lid opens is not a new press. */
     prev_physical_keys = physical;
     prev_keys = physical | cpad;
     last_physical_down = 0;
@@ -227,6 +231,21 @@ static void open_screen(void (*screen)(void)) {
   anim_transition(ANIM_POP, ANIM_BOTH);
 }
 
+/* A message card over whatever the bottom screen shows, until A, B or a tap. */
+static void notice(const char *title, const char *subtitle) {
+  ui_dialog(VRAM_BOT_A, BOT_SCREEN_WIDTH, BOT_SCREEN_HEIGHT,
+            BOT_SCREEN_HEIGHT, title, subtitle, g_accent, 1);
+  screen_present_bottom();
+  for (;;) {
+    u32 k = get_keys_down();
+    int tx, ty;
+    if ((k & (BUTTON_A | BUTTON_B)) || touch_tap(&tx, &ty))
+      break;
+    ui_idle();
+  }
+  anim_transition(ANIM_FADE, ANIM_BOT);
+}
+
 /* Shared with os_setup.c, so a saved index means the same everywhere. */
 #define accent_presets aurora_accent_presets
 #define accent_names   aurora_accent_names
@@ -234,6 +253,7 @@ static void open_screen(void (*screen)(void)) {
 
 #define THEME_DIR       "Aurora/themes"
 #define THEME_CONFIG    "Aurora/theme.txt"
+#define THEME_BUILTIN   "@default" /* theme.txt for the built-in wallpaper */
 #define THEME_MAX       24
 #define THEME_NAME_MAX  64
 
@@ -255,8 +275,9 @@ static void theme_path(char *out, const char *name, const char *file) {
   *out = '\0';
 }
 
+/* Names starting with '@' are left to THEME_BUILTIN. */
 static int theme_name_valid(const char *name) {
-  if (!name || !name[0] ||
+  if (!name || !name[0] || name[0] == '@' ||
       (name[0] == '.' && (!name[1] || (name[1] == '.' && !name[2]))))
     return 0;
   for (const char *p = name; *p; p++)
@@ -270,35 +291,54 @@ static int theme_name_equal(const char *a, const char *b) {
   return *a == *b;
 }
 
-/* A compatible theme is a folder with exact-size screen backgrounds. */
-static int theme_compatible(const char *name) {
+/* Only the PNG header is read, so listing themes stays quick; the picture is
+ * decoded (and its size checked again) by ui_theme_load(). */
+static int theme_png_fits(const char *path, int w, int h) {
+  static const u8 sig[8] = {0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A};
   static FIL f;
-  char path[128];
-  u8 sig[8];
-  UINT br;
-  Image img;
-  if (!theme_name_valid(name)) return 0;
-  theme_path(path, name, "top.png");
-  if (f_open(&f, path, FA_READ) != FR_OK) return 0;
-  br = 0;
-  int png = f_read(&f, sig, sizeof(sig), &br) == FR_OK && br == sizeof(sig) &&
-            sig[0] == 0x89 && sig[1] == 'P' && sig[2] == 'N' &&
-            sig[3] == 'G' && sig[4] == 0x0D && sig[5] == 0x0A &&
-            sig[6] == 0x1A && sig[7] == 0x0A;
+  u8 head[24];
+  UINT br = 0;
+  int iw = 0, ih = 0, ok;
+  if (f_open(&f, path, FA_READ) != FR_OK)
+    return 0;
+  ok = f_read(&f, head, sizeof(head), &br) == FR_OK && br == sizeof(head);
   f_close(&f);
-  if (!png || image_load(path, &img) != IMG_OK || img.w != TOP_SCREEN_WIDTH ||
-      img.h != TOP_SCREEN_HEIGHT)
+  for (int i = 0; ok && i < 8; i++)
+    ok = head[i] == sig[i];
+  return ok && image_probe(head, br, &iw, &ih) == IMG_OK && iw == w &&
+         ih == h;
+}
+
+static int theme_compatible(const char *name) {
+  char path[128];
+  if (!theme_name_valid(name))
+    return 0;
+  theme_path(path, name, "top.png");
+  if (!theme_png_fits(path, TOP_SCREEN_WIDTH, TOP_SCREEN_HEIGHT))
     return 0;
   theme_path(path, name, "bottom.png");
-  if (f_open(&f, path, FA_READ) != FR_OK) return 0;
-  br = 0;
-  png = f_read(&f, sig, sizeof(sig), &br) == FR_OK && br == sizeof(sig) &&
-        sig[0] == 0x89 && sig[1] == 'P' && sig[2] == 'N' &&
-        sig[3] == 'G' && sig[4] == 0x0D && sig[5] == 0x0A &&
-        sig[6] == 0x1A && sig[7] == 0x0A;
-  f_close(&f);
-  return png && image_load(path, &img) == IMG_OK &&
-         img.w == BOT_SCREEN_WIDTH && img.h == BOT_SCREEN_HEIGHT;
+  return theme_png_fits(path, BOT_SCREEN_WIDTH, BOT_SCREEN_HEIGHT);
+}
+
+/* Puts a theme into the wallpaper cache and makes it the active one; the card
+ * must be mounted. 0: not a compatible theme, nothing changed. -1: a picture
+ * did not decode after the cache was partly overwritten, so the built-in
+ * wallpaper is in use. */
+static int theme_load(const char *name) {
+  char top[128], bottom[128];
+  int i;
+  if (!theme_compatible(name))
+    return 0;
+  theme_path(top, name, "top.png");
+  theme_path(bottom, name, "bottom.png");
+  if (!ui_theme_load(top, bottom)) {
+    active_theme[0] = '\0';
+    return -1;
+  }
+  for (i = 0; i < THEME_NAME_MAX - 1 && name[i]; i++)
+    active_theme[i] = name[i];
+  active_theme[i] = '\0';
+  return 1;
 }
 
 static int theme_mount_prepare(void) {
@@ -311,69 +351,61 @@ static int theme_mount_prepare(void) {
 static void theme_boot_load(void) {
   static FIL f;
   char saved[THEME_NAME_MAX];
-  char top[128], bottom[128];
   UINT br = 0;
-  saved[0] = '\0';
   active_theme[0] = '\0';
-  if (theme_mount_prepare()) {
-    if (f_open(&f, THEME_CONFIG, FA_READ) == FR_OK) {
-      if (f_read(&f, saved, sizeof(saved) - 1, &br) != FR_OK) br = 0;
-      f_close(&f);
-    }
-    saved[br] = '\0';
-    while (br && (saved[br - 1] == '\r' || saved[br - 1] == '\n'))
-      saved[--br] = '\0';
-    if (theme_compatible(saved)) {
-      theme_path(top, saved, "top.png");
-      theme_path(bottom, saved, "bottom.png");
-      if (ui_theme_load(top, bottom)) {
-        for (int i = 0; i < THEME_NAME_MAX - 1 && saved[i]; i++)
-          active_theme[i] = saved[i], active_theme[i + 1] = '\0';
-      }
-    }
-    f_mount(NULL, "", 0);
+  if (!theme_mount_prepare())
+    return;
+  if (f_open(&f, THEME_CONFIG, FA_READ) == FR_OK) {
+    if (f_read(&f, saved, sizeof(saved) - 1, &br) != FR_OK)
+      br = 0;
+    f_close(&f);
   }
+  saved[br] = '\0';
+  while (br && (saved[br - 1] == '\r' || saved[br - 1] == '\n'))
+    saved[--br] = '\0';
+  theme_load(saved);
+  f_mount(NULL, "", 0);
 }
 
+/* Applies `name` ("" for the built-in wallpaper) and remembers it in
+ * theme.txt. Returns 0 when it could not be applied; the wallpaper shown
+ * before stays. A theme.txt that cannot be written only means the choice
+ * lasts until the next boot. */
 static int theme_select(const char *name) {
   static FIL f;
-  char top[128], bottom[128], saved[THEME_NAME_MAX + 2];
-  UINT bw = 0;
-  int ok = 0;
-  if (!theme_mount_prepare()) return 0;
+  char saved[THEME_NAME_MAX + 1];
+  const char *keep = name[0] ? name : THEME_BUILTIN;
+  UINT len = 0, bw;
+  int r = 1;
+  if (!theme_mount_prepare())
+    return 0;
   if (!name[0]) {
-    ui_theme_clear();
+    if (active_theme[0])
+      ui_theme_clear(); /* the next paint composes the built-in one */
     active_theme[0] = '\0';
-    ok = 1;
-    saved[0] = '@'; saved[1] = 'd'; saved[2] = 'e'; saved[3] = 'f';
-    saved[4] = 'a'; saved[5] = 'u'; saved[6] = 'l'; saved[7] = 't';
-    saved[8] = '\n';
-    bw = 9;
-  } else if (theme_compatible(name)) {
-    theme_path(top, name, "top.png");
-    theme_path(bottom, name, "bottom.png");
-    if (ui_theme_load(top, bottom)) {
-      int i;
-      for (i = 0; i < THEME_NAME_MAX - 1 && name[i]; i++)
-        active_theme[i] = name[i];
-      active_theme[i] = '\0';
-      for (i = 0; i < THEME_NAME_MAX && name[i]; i++) saved[i] = name[i];
-      saved[i++] = '\n';
-      bw = (UINT)i;
-      ok = 1;
+  } else {
+    char before[THEME_NAME_MAX];
+    int i;
+    for (i = 0; active_theme[i]; i++)
+      before[i] = active_theme[i];
+    before[i] = '\0';
+    r = theme_load(name);
+    if (r < 0 && before[0])
+      theme_load(before);
+  }
+  if (r > 0) {
+    while (keep[len] && len < THEME_NAME_MAX - 1) {
+      saved[len] = keep[len];
+      len++;
+    }
+    saved[len++] = '\n';
+    if (f_open(&f, THEME_CONFIG, FA_CREATE_ALWAYS | FA_WRITE) == FR_OK) {
+      f_write(&f, saved, len, &bw);
+      f_close(&f);
     }
   }
-  if (ok && f_open(&f, THEME_CONFIG, FA_CREATE_ALWAYS | FA_WRITE) == FR_OK) {
-    UINT wrote = 0;
-    ok = f_write(&f, saved, bw, &wrote) == FR_OK && wrote == bw;
-    ok = f_close(&f) == FR_OK && ok;
-  }
   f_mount(NULL, "", 0);
-  if (ok) {
-    ui_bg_invalidate();
-    ui_bg_build();
-  }
-  return ok;
+  return r > 0;
 }
 
 static int theme_scan(char names[THEME_MAX][THEME_NAME_MAX]) {
@@ -403,7 +435,7 @@ static int theme_scan(char names[THEME_MAX][THEME_NAME_MAX]) {
 static void theme_screen(void) {
   static char names[THEME_MAX][THEME_NAME_MAX];
   int count = theme_scan(names);
-  int sel = 0, top;
+  int sel = 0, dirty = 1;
   for (int i = 0; i < count; i++) {
     if ((!active_theme[0] && !names[i][0]) ||
         (active_theme[0] && theme_name_equal(active_theme, names[i]))) {
@@ -414,41 +446,55 @@ static void theme_screen(void) {
   settings_header(ASSET_ICON_DISPLAY_64, icon_brightness_bits, L(STR_THEME), g_accent);
   while (1) {
     u32 k = get_keys_down();
-    int tx, ty, activate = 0;
-    top = sel >= 5 ? sel - 4 : 0;
-    ui_wallpaper(VRAM_BOT_A, BOT_SCREEN_WIDTH, BOT_SCREEN_HEIGHT, BOT_SCREEN_HEIGHT);
-    if (count == 1) {
-      ui_text_mid(VRAM_BOT_A, BOT_SCREEN_WIDTH / 2, 66, BOT_SCREEN_HEIGHT,
-                  L(STR_NO_THEMES), COLOR_HM_TEXT2, COLOR_HM_BG_BOT, &ui_font);
-    } else {
-      for (int r = 0; r < 5 && top + r < count; r++) {
-        int i = top + r, y = 12 + r * 37;
-        Color bg = i == sel ? g_accent : COLOR_PANEL_BOT;
-        draw_filled_round_rect(VRAM_BOT_A, 10, y, BOT_SCREEN_WIDTH - 20, 31, 7,
-                               BOT_SCREEN_HEIGHT, bg);
-        ui_text_fit(VRAM_BOT_A, 20, y + 8, BOT_SCREEN_HEIGHT,
-                    names[i][0] ? names[i] : "Aurora", BOT_SCREEN_WIDTH - 40,
-                    COLOR_WHITE, bg, &ui_font);
+    int tx, ty, activate = 0, top = sel >= 5 ? sel - 4 : 0;
+    if (dirty) {
+      dirty = 0;
+      ui_wallpaper(VRAM_BOT_A, BOT_SCREEN_WIDTH, BOT_SCREEN_HEIGHT,
+                   BOT_SCREEN_HEIGHT);
+      if (count == 1) {
+        ui_text_mid(VRAM_BOT_A, BOT_SCREEN_WIDTH / 2, 66, BOT_SCREEN_HEIGHT,
+                    L(STR_NO_THEMES), COLOR_HM_TEXT2, COLOR_HM_BG_BOT,
+                    &ui_font);
+      } else {
+        for (int r = 0; r < 5 && top + r < count; r++) {
+          int i = top + r, y = 12 + r * 37;
+          Color bg = i == sel ? g_accent : COLOR_PANEL_BOT;
+          draw_filled_round_rect(VRAM_BOT_A, 10, y, BOT_SCREEN_WIDTH - 20, 31,
+                                 7, BOT_SCREEN_HEIGHT, bg);
+          ui_text_fit(VRAM_BOT_A, 20, y + 8, BOT_SCREEN_HEIGHT,
+                      names[i][0] ? names[i] : "Aurora",
+                      BOT_SCREEN_WIDTH - 40, COLOR_WHITE, bg, &ui_font);
+        }
       }
+      ui_text_mid(VRAM_BOT_A, BOT_SCREEN_WIDTH / 2, BOT_SCREEN_HEIGHT - 21,
+                  BOT_SCREEN_HEIGHT, L(STR_THEME_HINT), COLOR_HM_TEXT2,
+                  COLOR_HM_BG_BOT, &ui_small);
+      screen_present_bottom();
     }
-    ui_text_mid(VRAM_BOT_A, BOT_SCREEN_WIDTH / 2, BOT_SCREEN_HEIGHT - 21,
-                BOT_SCREEN_HEIGHT, L(STR_THEME_HINT), COLOR_HM_TEXT2,
-                COLOR_HM_BG_BOT, &ui_small);
-    screen_present_bottom();
-    if ((k & BUTTON_DUP) && sel > 0) sel--;
-    if ((k & BUTTON_DDOWN) && sel + 1 < count) sel++;
+    if ((k & BUTTON_DUP) && sel > 0) {
+      sel--;
+      dirty = 1;
+    }
+    if ((k & BUTTON_DDOWN) && sel + 1 < count) {
+      sel++;
+      dirty = 1;
+    }
     if (touch_tap(&tx, &ty) && count > 1) {
       int row = (ty - 12) / 37;
       if (ty >= 12 && row >= 0 && row < 5 && top + row < count) {
         sel = top + row;
         activate = 1;
+        dirty = 1;
       }
     }
     if ((k & BUTTON_A) || activate) {
       if (theme_select(names[sel]))
         return;
+      notice(L(STR_THEME_FAILED), names[sel][0] ? names[sel] : "Aurora");
+      dirty = 1;
     }
-    if (k & BUTTON_B) return;
+    if (k & BUTTON_B)
+      return;
     ui_idle();
   }
 }
@@ -3793,18 +3839,7 @@ static void power_off_now(void) {
 static void assets_warning(void) {
   ui_wallpaper(VRAM_BOT_A, BOT_SCREEN_WIDTH, BOT_SCREEN_HEIGHT,
                BOT_SCREEN_HEIGHT);
-  ui_dialog(VRAM_BOT_A, BOT_SCREEN_WIDTH, BOT_SCREEN_HEIGHT,
-            BOT_SCREEN_HEIGHT, L(STR_ASSETS_FAILED), L(STR_ASSETS_FALLBACK),
-            g_accent, 1);
-  screen_present_bottom();
-  for (;;) {
-    u32 k = get_keys_down();
-    int tx, ty;
-    if ((k & (BUTTON_A | BUTTON_B)) || touch_tap(&tx, &ty))
-      break;
-    ui_idle();
-  }
-  anim_transition(ANIM_FADE, ANIM_BOT);
+  notice(L(STR_ASSETS_FAILED), L(STR_ASSETS_FALLBACK));
 }
 
 static void home_open(const HomeApp *app) {
@@ -3823,25 +3858,96 @@ static void home_open(const HomeApp *app) {
   }
 }
 
+/* ASCII letters in either case; FAT treats names that way. */
+static int hm_same_ci(const char *a, const char *b) {
+  for (;; a++, b++) {
+    char x = *a, y = *b;
+    if (x >= 'a' && x <= 'z')
+      x = (char)(x - 32);
+    if (y >= 'a' && y <= 'z')
+      y = (char)(y - 32);
+    if (x != y)
+      return 0;
+    if (!x)
+      return 1;
+  }
+}
+
+/* The folder app `i` keeps its files in: a C app's from aurora_c_data_dir(),
+ * any other app's beside it and named after it (docs/apps.md). 0 if that
+ * would be the C apps' own folder ("Aurora/Apps/C.bin"). */
+static int app_data_dir(int i, char *out, unsigned max) {
+  const char *path = app_path[i];
+  int slash = -1, dot = -1, n;
+  if (app_kind[i] == 'C')
+    return aurora_c_data_dir(path, out, max);
+  for (n = 0; path[n]; n++) {
+    if (path[n] == '/')
+      slash = n, dot = -1;
+    else if (path[n] == '.' && n > slash + 1)
+      dot = n;
+  }
+  if (dot < 0 || (unsigned)dot >= max)
+    return 0;
+  for (n = 0; n < dot; n++)
+    out[n] = path[n];
+  out[dot] = '\0';
+  return !hm_same_ci(out, C_APPS_DIR);
+}
+
+/* Two copies of one C app, in both app folders, share a data folder. */
+static int app_data_shared(int i, const char *dir) {
+  static char other[APP_PATH_MAX];
+  for (int j = 0; j < app_count; j++)
+    if (j != i && app_data_dir(j, other, sizeof(other)) &&
+        hm_same_ci(other, dir))
+      return 1;
+  return 0;
+}
+
+/* Deletes the container, then offers to delete the app's data folder too, with
+ * the tile already gone from the grid behind the question. */
 static void home_remove_app(const HomeApp *app) {
   static FATFS delete_fs;
-  if (!app || !app->path ||
+  static FILINFO fno;
+  static char name[APP_NAME_MAX], dir[APP_PATH_MAX], shown[APP_PATH_MAX + 4];
+  int i = app ? (int)(app - home_apps) : -1, data, ok;
+  FRESULT fr;
+
+  if (i < 0 || i >= app_count || !app->path ||
       !fv_confirm(L(STR_DELETE_APP_ASK), app->name, L(STR_DELETE_APP),
                   L(STR_CANCEL)))
     return;
+  hm_str_copy(name, app->name);
+  data = app_data_dir(i, dir, sizeof(dir)) && !app_data_shared(i, dir);
 
-  FRESULT fr = f_mount(&delete_fs, "", 1);
+  fr = f_mount(&delete_fs, "", 1);
   if (fr == FR_OK)
     fr = f_unlink(app->path);
+  if (fr == FR_OK && data)
+    data = f_stat(dir, &fno) == FR_OK && (fno.fattrib & AM_DIR);
   f_mount(NULL, "", 0);
   if (fr != FR_OK) {
-    fv_confirm(L(STR_DELETE_APP_FAILED), app->name, L(STR_OK), L(STR_CANCEL));
+    home_draw();
+    notice(L(STR_DELETE_APP_FAILED), name);
     return;
   }
 
   scan_apps();
   build_home();
   home_reload(home_apps, home_count);
+  if (!data)
+    return;
+  home_draw();
+  hm_str_copy(hm_str_copy(shown, "SD:/"), dir);
+  if (!fv_confirm(L(STR_DELETE_DATA_ASK), shown, L(STR_DELETE), L(STR_KEEP)))
+    return;
+  ok = f_mount(&delete_fs, "", 1) == FR_OK && fo_delete(dir, NULL) == FO_OK;
+  f_mount(NULL, "", 0);
+  if (!ok) {
+    home_draw();
+    notice(L(STR_DELETE_DATA_FAILED), shown);
+  }
 }
 
 static void home_settings(void) { open_screen(settings_open); }
