@@ -136,7 +136,7 @@ These map one-to-one onto AuroraOS's API through the runtime shim
 | `buffered(on)`                    | draw off-screen until `present()`                 | `screen_use_backbuffer` |
 | `present()`                       | show the off-screen frame on both screens         | `screen_present_top` / `_bottom` |
 | `rand(n) -> int`                  | pseudo-random int in `[0, n)`                     | seeded from the RTC |
-| `millis() -> int`                 | milliseconds since the app started                 | ARM9 hardware timer |
+| `millis() -> int`                 | milliseconds since the app started, not counting time with the lid closed | ARM9 hardware timer |
 | `delay(cycles)`                   | busy-wait ~`cycles` iterations                     | `delay`           |
 | `load_sound(path) -> int`         | read a WAV from the SD card; `-1` if it cannot     | `wav_load`        |
 | `play_sound(handle)`              | play once, on a free effect voice                  | ARM11 voice       |
@@ -412,6 +412,12 @@ not by your program). While it is open, your program waits at its next button
 read; its Return to Home leaves the app like HOME. Rebuild older apps with this
 runtime for that. `examples/system_menu.aur` uses Down and Select itself to
 show that the chord still reaches the menu.
+
+Closing the lid turns both screens off. Your program then waits at its next
+built-in call until the lid opens, as HOME is noticed there. `millis()` does
+not count the time the lid was closed, so a game timed by it resumes where it
+was, and a button still held as the lid opens is not a new press for
+`keys_down`. Sounds keep playing.
 
 ### App icons
 

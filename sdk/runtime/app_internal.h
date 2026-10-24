@@ -72,7 +72,12 @@ int app_fs_chdir(const char *path);
 const char *app_fs_getcwd(void);
 void app_fs_close_all(void);
 
+/* The ARM9 timer as 64 bits; wall-clock time is built on this. */
+u64 app_raw_ticks64(void);
+/* App time: the same, less the time the lid was closed. */
 u64 app_ticks64(void);
+/* Waits while the lid is closed; true if it did. */
+bool app_lid_wait(void);
 void app_wait_ticks(u64 ticks);
 /* Seconds since 1970 for a date and time on the console's clock. */
 long long app_civil_secs(int year, int month, int day, int hour, int min,

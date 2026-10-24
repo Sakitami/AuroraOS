@@ -25,7 +25,8 @@ void aur_buffered(int on);
 void aur_present(void);
 /* rand(n): pseudo-random integer in [0, n). */
 int aur_rand(int n);
-/* millis(): milliseconds since the app started, from an ARM9 hardware timer. */
+/* millis(): milliseconds since the app started, not counting time with the lid
+ * closed. */
 int aur_millis(void);
 
 /* load_sound(path): read a WAV file from the SD card, `path` counted from the

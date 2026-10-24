@@ -240,11 +240,12 @@ bool app_loop(void) {
     g_frame_ticks = (timer_hz() + 30u) / 60u;
 
   /* A present that waits for the vertical blank has paced the frame already;
-   * without one, the timer does. */
-  now = timer_ticks();
+   * without one, the timer does. App time, so a closed lid does not count
+   * against the frame rate. */
+  now = (u32)app_ticks64();
   if (!shown || !app_core() || (gpu_vsynced() & shown) != shown) {
     while (now - g_last_frame < g_frame_ticks)
-      now = timer_ticks();
+      now = (u32)app_ticks64();
   }
   g_last_frame = now;
 
@@ -274,7 +275,7 @@ void app_entry(void) {
   launch_read();
   app_hid_init();
   app_gfx_init();
-  g_last_frame = g_fps_t0 = timer_ticks();
+  g_last_frame = g_fps_t0 = (u32)app_ticks64();
 
   for (void (**f)(void) = __init_array_start; f < __init_array_end; f++)
     (*f)();

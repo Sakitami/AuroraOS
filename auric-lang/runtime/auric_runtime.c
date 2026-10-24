@@ -44,7 +44,7 @@ static void aur_timer_init(void) {
   aur_timer_ready = 1;
 }
 
-u32 aur_ticks(void) {
+static u32 aur_raw_ticks(void) {
   u32 hi, lo, hi2;
 
   if (!aur_timer_ready)
@@ -58,6 +58,22 @@ u32 aur_ticks(void) {
     lo = TIMER0_VAL;
   }
   return (hi << 16) | lo;
+}
+
+static u32 aur_lid_ticks; /* spent waiting for the lid to open */
+static int aur_lid_resumed;
+
+/* App time stops while the lid is closed, so millis() resumes where it was. */
+u32 aur_ticks(void) { return aur_raw_ticks() - aur_lid_ticks; }
+
+static void aur_lid_wait(void) {
+  u32 t0;
+  if (!aurora_lid_is_closed())
+    return;
+  t0 = aur_raw_ticks();
+  aurora_lid_wait_open();
+  aur_lid_ticks += aur_raw_ticks() - t0;
+  aur_lid_resumed = 1;
 }
 
 int aur_millis(void) { return (int)(aur_ticks() / TICKS_PER_MS); }
@@ -174,7 +190,7 @@ void delay(volatile u32 cycles) {
 
 /* Pad bits 0..9 are A/B/Select/Start/D-pad/R/L; 10 and 11 are X and Y. */
 u32 get_keys(void) {
-  aurora_lid_wait_open();
+  aur_lid_wait();
   if (aur_from_home()) {
     volatile AuroraSystemMenuShared *menu = aurora_system_menu_shared();
     for (;;) {
@@ -191,7 +207,13 @@ u32 get_keys(void) {
 static u32 aur_prev_keys = 0;
 u32 get_keys_down(void) {
   u32 cur = get_keys();
-  u32 down = cur & ~aur_prev_keys;
+  u32 down;
+  if (aur_lid_resumed) {
+    /* What is held as the lid opens is not a new press. */
+    aur_lid_resumed = 0;
+    aur_prev_keys = cur;
+  }
+  down = cur & ~aur_prev_keys;
   aur_prev_keys = cur;
   return down;
 }
@@ -276,7 +298,9 @@ static void aur_home_poll_now(void) {
     aur_leave();
 }
 
+/* Every built-in passes here, so a closed lid pauses the app at its next one. */
 void aur_check_home(void) {
+  aur_lid_wait();
   aur_system_menu_request_poll();
   aur_home_button_poll_due();
 }

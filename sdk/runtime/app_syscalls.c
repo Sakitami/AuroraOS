@@ -190,10 +190,10 @@ int _gettimeofday_r(struct _reent *r, struct timeval *tv, void *tz) {
     }
     base_secs = app_civil_secs(t.year, t.month, t.day, t.hour, t.minute,
                                t.second);
-    base_ticks = app_ticks64();
+    base_ticks = app_raw_ticks64();
   }
   if (tv) {
-    us = (app_ticks64() - base_ticks) * 1000000u / timer_hz();
+    us = (app_raw_ticks64() - base_ticks) * 1000000u / timer_hz();
     tv->tv_sec = (time_t)(base_secs + (long long)(us / 1000000u));
     tv->tv_usec = (suseconds_t)(us % 1000000u);
   }

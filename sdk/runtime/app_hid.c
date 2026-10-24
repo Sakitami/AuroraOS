@@ -4,7 +4,6 @@
 #include "crash.h"
 #include "touch.h"
 #include "user.h"
-#include "lid.h"
 
 #include <stdlib.h>
 
@@ -21,9 +20,11 @@ static u32 g_held, g_down, g_up;
 static int g_tx = -1, g_ty = -1, g_cx, g_cy;
 static int g_touch;            /* 0 not set up yet, 1 usable, -1 not */
 static bool g_touch_ignore = true; /* a touch from before the app started */
+static bool g_lid_resumed;
 
 static u32 pad(void) {
-  aurora_lid_wait_open();
+  if (app_lid_wait())
+    g_lid_resumed = true;
   if (app_from_home()) {
     volatile AuroraSystemMenuShared *menu = aurora_system_menu_shared();
     for (;;) {
@@ -138,6 +139,11 @@ void hid_scan(void) {
       cur |= KEY_CPAD_UP;
     if (g_cy <= -CPAD_KEY)
       cur |= KEY_CPAD_DOWN;
+  }
+  if (g_lid_resumed) {
+    /* What is held as the lid opens is not a new press. */
+    g_lid_resumed = false;
+    g_held = cur;
   }
   g_down = cur & ~g_held;
   g_up = g_held & ~cur;

@@ -121,6 +121,21 @@ HOME is noticed in `app_loop()`, `hid_scan()`, `hid_wait()` and `sys_sleep()`;
 a long computation that calls none of them does not respond to it until it
 does.
 
+Closing the lid turns the screens off (the resident ARM11 core does that for
+every app) and, in apps built with SDK 1.3 or later, pauses the app where it
+next reads the buttons or waits: the `hid_` reads (so every `app_loop()`),
+`sys_sleep()` and the C library's `sleep`, `usleep` and `nanosleep`. App
+time stops meanwhile: `sys_millis()`, `sys_micros()`, `clock()`, the frame
+pacing and `app_fps()` leave out the time the lid was closed, so a game
+resumes where it was and a `sys_sleep(1000)` still sleeps one second of open
+time; `time()` and `gettimeofday()` follow the real clock. Buttons still
+held as the lid opens do not count as new presses. Sound already playing
+keeps playing; stop it in your own code if that matters. The same blocking
+rule as HOME applies: a loop that never reads the buttons or waits keeps
+running in the dark. Apps built with SDK 1.2 or older keep running behind
+the dark screens until they are rebuilt. See
+[`../docs/power.md`](../docs/power.md), "Closing the lid".
+
 ### Your app's files
 
 `app_dir()` is the folder for an app's own data: `SD:/Aurora/Apps/C/<name>`,
@@ -243,7 +258,7 @@ The SDK links devkitARM's **newlib** and provides the system calls under it:
 | `fopen`, `fread`, `fwrite`, `fprintf`, `fscanf`, `fgets`, `fseek`, `remove`, `rename`, `stat`, `mkdir`, `rmdir`, `open`/`read`/`write`/`lseek`/`close` | the SD card (FatFs); 16 files open at once |
 | `malloc`, `calloc`, `realloc`, `free` | a 16 MB heap |
 | `time`, `gettimeofday`, `localtime`, `strftime` | the console clock as the Home Menu shows it (Settings > Clock included), counted on by the ARM9 timer |
-| `clock`, `usleep`, `nanosleep`, `sleep` | the ARM9 timer |
+| `clock`, `usleep`, `nanosleep`, `sleep` | the ARM9 timer, less any time the lid was closed |
 | `rand`, `srand`, `qsort`, `bsearch`, `strtol`, `strtod`, `<string.h>`, `<ctype.h>`, `<math.h>` | as usual |
 | `exit`, `atexit`, `abort`, `assert` | `exit` goes back to the Home Menu; `abort` and a failed `assert` show the message on the console and wait for HOME |
 

@@ -120,6 +120,12 @@ python -m compiler.aurc build examples/hello.aur -o AURORAOS.BIN
 > to Home. See
 > [`examples/system_menu.aur`](examples/system_menu.aur) for a
 > demo that uses Down and Select in its own controls.
+>
+> **Closing the lid** turns the screens off, and the runtime waits until it
+> opens again, so a program pauses at its next built-in call. `millis()`
+> leaves the closed time out, so a game resumes where it was, and buttons
+> held as the lid opens are not new presses. Sounds keep playing. Apps built
+> before this runtime keep running in the dark.
 
 ## Standalone Windows executable (`aurc.exe`)
 

@@ -12,7 +12,7 @@
 
 /* The hardware count is 32 bits at 65,457 Hz and wraps after about 18 hours;
  * every caller passes through here often enough to see each wrap. */
-u64 app_ticks64(void) {
+u64 app_raw_ticks64(void) {
   static u32 last, high;
   u32 t = timer_ticks();
   if (t < last)
@@ -21,23 +21,38 @@ u64 app_ticks64(void) {
   return ((u64)high << 32) | t;
 }
 
+static u64 g_lid_ticks; /* spent waiting for the lid to open */
+
+/* App time stops while the lid is closed, so a game resumes where it was
+ * instead of seeing one enormous frame. */
+u64 app_ticks64(void) { return app_raw_ticks64() - g_lid_ticks; }
+
+bool app_lid_wait(void) {
+  u64 t0;
+  if (!aurora_lid_is_closed())
+    return false;
+  t0 = app_raw_ticks64();
+  while (aurora_lid_is_closed()) {
+    app_raw_ticks64(); /* keeps seeing the wraps, however long it stays shut */
+    delay(60000);
+  }
+  g_lid_ticks += app_raw_ticks64() - t0;
+  return true;
+}
+
 uint32_t sys_millis(void) {
   return (uint32_t)(app_ticks64() * 1000u / timer_hz());
 }
 
 uint64_t sys_micros(void) { return app_ticks64() * 1000000u / timer_hz(); }
 
-/* HOME and an ARM11 fault are checked once a frame meanwhile. */
+/* HOME and an ARM11 fault are checked once a frame meanwhile. A closed lid
+ * stops app time, so the wait resumes with what was left of it. */
 void app_wait_ticks(u64 ticks) {
   u64 now = app_ticks64(), end = now + ticks, next = now;
   u32 frame = timer_hz() / 60u;
   while (now < end) {
-    u64 before_lid = now;
-    if (aurora_lid_wait_open()) {
-      now = app_ticks64();
-      end += now - before_lid;
-      next = now;
-    }
+    app_lid_wait();
     if (now >= next) {
       app_poll_home();
       crash_poll_arm11();

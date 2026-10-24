@@ -4,8 +4,8 @@ so the ARM11 fields are zero.
 
     [ 36-byte header ][ arm9 payload ]
 
-The stock loader (boot_aurora) only accepts "AOS1"; pack with `--magic AOS1`
-to boot an app as AURORAOS.BIN.
+Older firm loaders boot only "AOS1"; pack with `--magic AOS1` to boot an app
+as AURORAOS.BIN on one of those.
 """
 import argparse
 import struct
