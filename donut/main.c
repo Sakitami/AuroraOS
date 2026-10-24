@@ -32,11 +32,11 @@ static int8_t b[W * H], z[W * H];
 
 static void info(int fps) {
   gfx_clear(SCREEN_BOTTOM, COLOR_BLACK);
-  
+
   gfx_print(SCREEN_BOTTOM, 16, 16, FONT_TITLE, COLOR_WHITE, "donut.c");
   gfx_print(SCREEN_BOTTOM, 16, 50, FONT_REGULAR, COLOR_GRAY,
             "Andy Sloane's spinning donut,\nin fixed point on the ARM9");
-  
+
   if (fps)
     gfx_print(SCREEN_BOTTOM, 16, 110, FONT_REGULAR, COLOR_WHITE, "%d fps",
               fps);
@@ -51,18 +51,18 @@ int main(void) {
   while (app_loop()) {
     if (hid_keys_down() & KEY_START)
       break;
-    
+
     if (app_fps() != shown)
       info(shown = app_fps());
 
     memset(b, 32, sizeof(b));  // text buffer
     memset(z, 127, sizeof(z));   // z buffer
-    
+
     int sj=0, cj=1024;
-    
+
     for (int j = 0; j < 90; j++) {
       int si = 0, ci = 1024;  // sine and cosine of angle i
-      
+
       for (int i = 0; i < 324; i++) {
         int R1 = 1, R2 = 2048, K2 = 5120*1024;
 
@@ -80,30 +80,30 @@ int main(void) {
 
         int o = x + W * y;
         int8_t zz = (x6-K2)>>15;
-        
+
         if (H > y && y >= 0 && x >= 0 && W > x && zz < z[o]) {
           z[o] = zz;
           b[o] = ".,-~:;=!*#$@"[N > 0 ? N : 0];
         }
-        
+
         R(5, 8, ci, si)  // rotate i
       }
-      
+
       R(9, 7, cj, sj)  // rotate j
     }
-    
+
     printf("\x1b[H");
-    
+
     for (int k = 0; k < W * H; k++) {
       if (k && k % W == 0)
         putchar('\n'); /* a full row does not wrap by itself; a newline
                           after the last one would scroll the console */
       putchar(b[k]);
     }
-    
+
     R(5, 7, cA, sA);
     R(5, 8, cB, sB);
   }
-  
+
   return 0;
 }
