@@ -25,7 +25,7 @@ KNOWN_SIZES = {
     "Main.type5": 0x7A2E,
 }
 
-# The names the Wi-Fi test loads from SD:/Aurora/wifi/; Main.type5 is unused.
+# The names the Wi-Fi driver loads from SD:/Aurora/wifi/; Main.type5 is unused.
 SD_NAMES = {
     "stub_data": "STUBDATA.BIN",
     "stub_code": "STUBCODE.BIN",
