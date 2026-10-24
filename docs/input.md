@@ -7,6 +7,7 @@
 | Circle pad | `src/os/Touch11.c` (reading), `src/os/Touch9.c` (`cpad_read`) |
 | Calibration screen | `src/os/TouchCal.c`, `include/touchcal.h` |
 | Screenshots | `src/os/Screenshot.c`, `include/screenshot.h` |
+| Waiting while the lid is closed | `include/lid.h`, `get_keys()` / `get_keys_down()` in `src/os/os_main.c` |
 
 ## Touchscreen
 
@@ -51,6 +52,16 @@ zone of 150 and full deflection at 1000 raw units; see [`soft3d.md`](soft3d.md).
 
 Works on a New 3DS (orbiting the cube, 2026-10-02); the pad's full range has
 not been measured.
+
+## Closing the lid
+
+From core 120 (PR 29) `get_keys()` waits while the lid is closed, so every
+screen stops at its next button read, and the core turns the backlights off.
+The first `get_keys_down()` after the lid opens reports nothing and treats
+every button still held as already down, so nothing is pressed by opening
+the console; that holds whichever `get_keys()` call did the waiting. The C
+SDK and the Auric runtime wait the same way and also ignore buttons held
+through the pause. Details in [`power.md`](power.md), "Closing the lid".
 
 ## Calibration
 

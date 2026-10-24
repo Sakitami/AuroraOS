@@ -11,9 +11,13 @@
 | The 3D Model screen | `src/os/Model3D.c`; see [`glb.md`](glb.md) |
 
 **Status: working on a New 3DS** (P3D, the 3D screen and the barrier,
-confirmed 2026-10-02 with the cube). The Old 3DS and 3DS XL paths (plain
-barrier, 3D LED) are untested. Textured models drawn from vertex buffers work
-as well; see [`glb.md`](glb.md).
+confirmed 2026-10-02 with the cube). Textured models drawn from vertex
+buffers work as well; see [`glb.md`](glb.md). **Old 3DS: not working yet.** A
+contributor tried it on an Old 3DS (PR 26, 2026-10-23): with the slider up
+the top screen "turns on, but it doesn't actually show 3D, and just dims the
+screen a bit". The dimming suggests the plain barrier did switch on; why
+there is no depth (both eyes getting the same picture, or the PDC not in its
+3D mode) has not been found. The 3DS XL and the 3D LED have no report.
 
 ## Nothing has to be dumped
 
@@ -36,7 +40,7 @@ Console data is only needed for refinements, all optional:
 | Data | Where it lives | What it would add |
 |------|----------------|-------------------|
 | Slider calibration (`SVR2` min/max) | HWCAL in NAND (`ro/sys/HWCAL0.dat`), config block `0x00120000` | exact slider ends; Aurora uses bounds that cover every console's factory range instead |
-| Backlight curves for 3D | HWCAL, block `0x00050002` | GSP makes the top screen brighter in 3D (half the pixels reach each eye); Aurora does not yet |
+| Backlight curves for 3D | HWCAL, block `0x00050002` | GSP makes the top screen brighter in 3D (half the pixels reach each eye); from core 119 Aurora does too, with libn3ds's default curve instead of the console's own ([`power.md`](power.md), "Screen brightness") |
 | 2D/3D switching delays | HWCAL, block `0x00050006` | a few frames; Aurora waits two frames |
 | New 3DS barrier centre | config block `0x00180001` (QTM calibration) | the head-tracking centre position; Aurora uses the fixed pattern, which needs none |
 
@@ -208,8 +212,9 @@ On the PC, with no PICA200 to run on:
 On a New 3DS (the cube, before models): P3D lists run, the PDC 3D preset
 works, and the barrier's fixed pattern gives depth, which also bears out the
 expander's byte split. With models, on the same console: vertex buffers,
-`DrawElements`, mipmapped textures and the alpha modes. Not checked: the Old
-3DS barrier and LED.
+`DrawElements`, mipmapped textures and the alpha modes. On an Old 3DS
+(2026-10-23, reported in PR 26): 3D switches on and the screen dims, but there
+is no depth. Not checked: the 3DS XL, the Old 3DS's 3D LED.
 
 ## On the console
 
@@ -229,6 +234,7 @@ expander's byte split. With models, on the same console: vertex buffers,
 |---------|--------------|
 | Top screen black after raising the slider | 3D timing not accepted; the 2D values are restored when the slider goes down or B is pressed |
 | A double image that does not resolve at any viewing angle | barrier off: on a New 3DS the expander; on an Old 3DS the barrier registers |
+| Old 3DS: the top screen dims a little but stays flat (seen 2026-10-23) | not found yet; the barrier seems to be on while the eyes do not differ, so the first things to check are the right-eye framebuffer addresses (`+0x94`/`+0x98`) and the PDC's 3D format bits on that model |
 | Depth inverted (near looks far) | eyes swapped: the sign of the eye offset in `draw_eyes()` |
 | Faint flicker on the barrier (New 3DS) | the alternation period; `EXP_PERIOD` in `Stereo11.c` |
 | Both screens stop updating on opening 3D Model | the first command list wedged the GPU, so presents stop too; power off, and report the bottom screen's last line |

@@ -224,9 +224,9 @@ on a New 3DS at 804 MHz (2026-10-08).
 `AUDIO_CMD_N3DS` takes mode 0 from core 116 too, to go back to 268 MHz; it
 leaves the L2 controller's power and the GPU's New 3DS bits as they are.
 
-## Brightness and the system menu
+## Brightness, the system menu and the lid
 
-Two later jobs have nothing to do with sound, but they are ARM11 work, so they
+Three later jobs have nothing to do with sound, but they are ARM11 work, so they
 live in the core too:
 
 - **Core 117**, `AUDIO_CMD_BRIGHTNESS` (14): `arg0` is a level from 0 to 4.
@@ -244,6 +244,12 @@ live in the core too:
   whose runtime set `app_caps`, and it closes the menu as soon as
   `app_active` drops (an older app left by HOME meanwhile), so the restarting
   OS's probe is answered. See [`home.md`](home.md), "The system menu".
+- **Core 120**, the lid (`core11_sleep_poll()` in `src/os/Core11.c`, PR 29).
+  Every 32,768 loop passes, and on each of the system menu's button reads,
+  the core reads the lid sensor (GPIO1 bit 2). Closed, it sets both
+  backlights' duty to 0; open again, it restores the level in use. It keeps
+  taking commands meanwhile, so sound goes on playing; the ARM9 side waits at
+  its button reads. See [`power.md`](power.md), "Closing the lid".
 
 The core links those two shared files, `include/font.h` and
 `include/system_menu.h`, so a change to any of them is a core change and needs
