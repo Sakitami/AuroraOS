@@ -104,7 +104,8 @@ compiler. `sdk/` is for apps in C: the public header `sdk/include/aurora_app.h`,
 the runtime in `sdk/runtime/` (which links the OS's own drivers from `src/`
 and devkitARM's newlib), the build tool `sdk/aurcc.py` and examples in
 `sdk/examples/`. `cpu-stress/` is a CPU benchmark built both as an AuroraOS C
-app and as Horizon homebrew, to compare the two systems.
+app and as Horizon homebrew, to compare the two systems. `gameboy/` is a Game
+Boy emulator built as a C app, on Peanut-GB and minigb_apu (MIT).
 
 Art and fonts are built into `Aurora/assets.pak` by `tools/mkassets.py` (with
 `tools/png_read.py` and `tools/ttf.py`) from `icons/` and `assets/fonts/`, and
@@ -131,6 +132,7 @@ loaded at boot by `src/assets.c`. Run `make assets` after changing either.
 * [`auric-lang/README.md`](auric-lang/README.md): the Auric language and compiler
 * [`sdk/README.md`](sdk/README.md): writing apps in C: the API, the C library, memory, building with `aurcc.py`, publishing on aShop
 * [`cpu-stress/README.md`](cpu-stress/README.md): the CPU stress test on AuroraOS and Horizon, and the results on a New 3DS
+* [`gameboy/README.md`](gameboy/README.md): the Game Boy emulator: building, controls, saves and limits
 
 ## License
 Aurora is licensed **GPL-3.0** (see `LICENSE`). Two drivers are separate
