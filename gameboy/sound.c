@@ -12,6 +12,7 @@
 
 #include <aurora_app.h>
 #include <string.h>
+#include <sys/time.h>
 
 // 275 samples a Game Boy frame, a little more than the voice plays (see
 // OUT_PER_US_Q32); the surplus is dropped as it builds up. The pitch is off by
@@ -58,7 +59,7 @@ static struct minigb_apu_ctx apu;
 static bool playing;
 static uint64_t start_us;
 static uint32_t wpos; // samples written since the start; ring index & (RING-1)
-// The lead, smoothed over about sixteen frames, in sixteenths of a sample.
+// The lead, smoothed over about eight frames, in sixteenths of a sample.
 // The stretch follows it rather than each frame's lead, which jumps about
 // (a pass that catches up writes two or three frames at once), so the pitch
 // moves slowly instead of wobbling.
@@ -74,9 +75,19 @@ void sound_reset(void) { minigb_apu_audio_init(&apu); }
 
 bool sound_playing(void) { return playing; }
 
+// The time the voice keeps. It plays on while the lid is closed, which
+// sys_micros() leaves out (SDK 1.3), so this is the wall clock, which counts
+// it; sys_micros() only if the clock cannot be read.
+static uint64_t voice_us(void) {
+  struct timeval tv;
+  if (gettimeofday(&tv, NULL) != 0)
+    return sys_micros();
+  return (uint64_t)tv.tv_sec * 1000000u + (uint32_t)tv.tv_usec;
+}
+
 // Where the voice is, in samples since it started.
 static uint32_t play_pos(void) {
-  return (uint32_t)(((sys_micros() - start_us) * OUT_PER_US_Q32) >> 32);
+  return (uint32_t)(((voice_us() - start_us) * OUT_PER_US_Q32) >> 32);
 }
 
 // The ring from sample `from` on, `n` samples, as two runs where it wraps.
@@ -121,7 +132,7 @@ bool sound_start(void) {
   app_core_post(CMD_VOICE,
                 VOICE | VOICE_LOOP | VOICE_PCM16 | VOICE_VOL(0x8000),
                 (uint32_t)(uintptr_t)sound_ring, sizeof(sound_ring), OUT_RATE);
-  start_us = sys_micros(); // the core has taken it: the voice is running
+  start_us = voice_us(); // the core has taken it: the voice is running
   playing = true;
   return true;
 }
@@ -163,8 +174,10 @@ void sound_frame(void) {
   if (lead > 2 * LEAD)
     return;
 
-  lead_q4 += lead - (lead_q4 >> 4);
-  adjust = ((lead_q4 >> 4) - LEAD) / 32;
+  lead_q4 += (lead << 1) - (lead_q4 >> 3);
+  // A sample a frame for every 16 the lead is off: at 90% speed it settles
+  // about 440 samples short, well clear of running dry.
+  adjust = ((lead_q4 >> 4) - LEAD) / 16;
   if (adjust > MAX_ADJUST)
     adjust = MAX_ADJUST;
   if (adjust < -MAX_ADJUST)

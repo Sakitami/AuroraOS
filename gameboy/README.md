@@ -83,6 +83,14 @@ anyway. After a stall it starts again from silence, and in fast forward it
 drops what does not fit. It plays only while a game runs on screen: pausing,
 the list of games and HOME stop it.
 
+Closing the lid (OS Beta 7, SDK 1.3) darkens the screens and holds the app at
+its next button read, but the voice would play on, looping what is in the
+ring. So the app reads the lid sensor itself (GPIO1 bit 2, as the OS's
+`include/lid.h` does) before each wait and stops the voice; it starts again,
+from silence, when the lid opens. The voice's position is worked out from the
+wall clock (`gettimeofday()`), not `sys_micros()`, which SDK 1.3 stops while
+the lid is closed.
+
 The SDK plays WAV files only, so `sound.c` posts the ARM11 core's voice
 commands itself, through the SDK runtime's `app_core_post()` and
 `os_dcache_clean_range()` and the values from `include/audio.h`. None of these

@@ -1283,6 +1283,16 @@ static void sync_sound(void) {
   }
 }
 
+// The lid: GPIO1 bit 2 is high while the shell is closed (as include/lid.h
+// has it; that header is the OS's, not the SDK's). A PC test build has none.
+static bool lid_closed(void) {
+#ifdef __arm__
+  return (*(volatile uint8_t *)0x10147000u & 4u) != 0;
+#else
+  return false;
+#endif
+}
+
 static void save_on_exit(void) {
   sound_stop(); // the voice would go on looping in the Home Menu
   save_ram();
@@ -1342,6 +1352,11 @@ int main(void) {
       draw_bottom();
       perf_draw_us += (uint32_t)(sys_micros() - t0);
     }
+    // With the lid closed the OS darkens the screens but the voice plays on,
+    // looping what is in the ring, and the next app_loop() waits for the lid
+    // to open: stop it now. sync_sound() starts it again afterwards.
+    if (sound_playing() && lid_closed())
+      sound_stop();
     pass_end = sys_micros();
   }
   return 0;
