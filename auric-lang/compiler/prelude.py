@@ -39,7 +39,7 @@ BUILTINS: dict[str, Builtin] = {
     "present":   Builtin((), "void", "aur_present"),
     # Pseudo-random integer in [0, n), seeded from the console clock.
     "rand":      Builtin(("int",), "int", "aur_rand"),
-    # Milliseconds since startup, from an ARM9 hardware timer.
+    # Milliseconds since the app started, not counting time with the lid closed.
     "millis":    Builtin((), "int", "aur_millis"),
     # Sound: WAV files read from the SD card, mixed by the ARM11 core.
     "load_sound":  Builtin(("string",), "int", "aur_load_sound"),

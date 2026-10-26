@@ -6,6 +6,8 @@
 | The arrangement and its file | `src/os/HomeLayout.c`, `include/homelayout.h` |
 | The apps it shows, and what opening one does | `src/os/os_main.c` (`scan_apps`, `build_home`, `home_open`) |
 | The system menu (L + Down + Select) | `src/os/HomeMenu.c` (`home_system_menu`), `get_keys_down()` in `src/os/os_main.c`; in apps `src/os/SystemMenu11.c` and `include/system_menu.h` |
+| Delete App | `MI_DELETE_APP` in `src/os/HomeMenu.c`, the `remove_app` hook (`home_remove_app` in `src/os/os_main.c`) |
+| Wallpaper themes (Settings > Theme) | `theme_*` in `src/os/os_main.c`, `ui_theme_load` / `ui_theme_clear` in `src/ui.c` |
 | Strings, in English, Spanish and French | `src/os/os_setup.c`, `include/lang.h` |
 | Folder icon | `icons/folder-icon-without-text.png` (`ASSET_ICON_FOLDER_*`), `icon_folder_bits` in `include/icons.h` |
 
@@ -79,14 +81,6 @@ icon when it is empty.
 | Swipe left or right | turns the page; the grid follows the stylus |
 | Hold a tile (half a second) | picks it up: drag it, or let go without moving for the action menu |
 
-### Wallpaper themes
-
-Settings > Theme lists compatible folders in `SD:/Aurora/themes`. Each theme
-folder should contain opaque PNG backgrounds named `top.png` (400 x 240) and
-`bottom.png` (320 x 240). Aurora creates the `Themes` folder when needed and
-remembers the selected folder in `SD:/Aurora/theme.txt`. Choose **Aurora** in
-the list to return to the built-in background.
-
 ### The action menu (Y)
 
 | Item | Does |
@@ -96,7 +90,31 @@ the list to return to the built-in background.
 | New Folder | asks for a name, then puts the tile in a new folder in its place (on an empty slot, makes an empty folder) |
 | Rename | a folder's name, on the keyboard |
 | Remove Folder | after asking, if it is not empty: what it holds goes where the folder was |
-| Delete App | on an SD app, asks for confirmation and deletes its `.bin` file |
+| Delete App | on an SD app, asks "Delete this app?" with its name, deletes its `.bin` file, then offers to delete its data too |
+
+Delete App is offered only for apps on the card (not Music, Files, 3D Model,
+aShop or a folder). After "Delete this app?" it deletes the container, the
+menu rescans both app folders and re-reads the layout (`home_reload`), and
+the tile is gone. Then, if the app has a data folder on the card, a second
+question names it, "Delete its data too?" with `SD:/...`, and **Delete** or
+**Keep**:
+
+* a C app's folder is `SD:/Aurora/Apps/C/<Name>/` (`aurora_c_data_dir()`,
+  wherever the `.bin` was);
+* any other app's is beside it and named after it, such as
+  `SD:/Aurora/Apps/TETRIS/` for `Tetris.bin` (letter case does not matter);
+  an app called `C.bin` has none, since that would be the C apps' folder;
+* the question is not asked when another app on the card uses the same
+  folder (two copies of one C app, one in each app folder).
+
+Delete removes the folder with everything in it (`fo_delete()`); Keep leaves
+it for later. aShop's record of the installed version stays either way, so
+the store shows the app as not installed and offers it again. The deleted
+app's line in `HomeMenu.txt` is dropped the next time the layout is saved. If
+the card cannot be mounted or the file cannot be deleted (a read-only card,
+for example), "Could not delete the app" says so and nothing changes; a data
+folder that cannot be removed in full says "Could not delete all of its
+data".
 
 ## The system menu
 
@@ -149,7 +167,7 @@ and Cancel are handled by the core, so they work in any app.
 Return to Home cannot be done by the core alone. The app runs on the ARM9
 with interrupts masked, so nothing on the ARM11 can take the ARM9 out of it;
 only the app's own runtime can leave. The runtimes from Beta 7 (the C SDK 1.2
-and the Auric runtime of the same release) do this. At start they set
+and later, and the Auric runtime of the same release) do this. At start they set
 `app_caps` in the block at `0x233A8000` (`include/system_menu.h`). The core
 then passes Return to Home to them through `action`, and the runtime leaves by
 the normal HOME path at its next button read or present. While the menu is
@@ -164,6 +182,48 @@ and closes the menu at once, so the restarting OS finds it answering.
 `Games/Tetris.BIN` is built with the new runtime; the other Auric and C apps
 in this tree get it when they are rebuilt with `aurc` or `sdk/aurcc.py`. An
 app installed from aShop needs a new build from its developer.
+
+## Wallpaper themes
+
+**Settings > Theme** (the row after Accent colour) replaces the built-in
+wallpaper on both screens with pictures from the card. A theme is a folder:
+
+```
+SD:/Aurora/themes/
+`-- Night/
+    |-- top.png       400 x 240
+    `-- bottom.png    320 x 240
+```
+
+The screen lists **Aurora** (the built-in wallpaper) and then every folder
+in `SD:/Aurora/themes` whose two files are PNGs of exactly those sizes, in
+the card's directory order, five rows at a time. Up/Down choose, A or a tap
+on a row applies it, B goes back. The Settings row shows the theme's folder
+name, or "Aurora". The choice is saved in `SD:/Aurora/theme.txt` (the folder
+name, or `@default` for the built-in wallpaper) and loaded again at every
+boot and every return from an app. A folder that is no longer there or no
+longer fits falls back to the built-in wallpaper.
+
+Rules, checked by `theme_compatible()` from each PNG's header:
+
+* both files must start with the PNG signature and be exactly 400 x 240 and
+  320 x 240; nothing is scaled or cropped;
+* the pictures should be opaque: transparent parts are blended onto the panel
+  colour when the file is decoded;
+* folder names up to 63 characters, without `/`, `\` or `:`, and not
+  starting with `@` (kept for `@default`); longer ones are not listed, and at
+  most 23 themes are;
+* `SD:/Aurora/themes` is created at boot when it is missing.
+
+A theme takes the place of the cached wallpaper (`ui_theme_load()` copies
+the decoded pictures into the cache `ui_bg_build()` normally composes), so
+every screen that draws the wallpaper shows it, and an accent colour no
+longer tints it. Listing reads only the first 24 bytes of each picture, and
+a saved theme costs two PNG decodes at boot. A picture whose header is right
+but whose data does not decode shows "Could not load this theme" and the
+wallpaper from before comes back. If `theme.txt` cannot be written (a
+write-protected card) the theme still shows, but only until the next boot.
+See also [`assets.md`](assets.md), "Themes".
 
 ## Moving things
 
@@ -258,6 +318,16 @@ On the PC, with the real menu code, 23 SD apps and scripted buttons and stylus:
 
 On a New 3DS: all of it works. The system menu and the circle pad came later
 (Beta 7) and were built, but not run in the harness or on a console here.
+Delete App (PR 23) and wallpaper themes (PR 24, both 2026-10-20, reworked
+2026-10-24) were checked with a host test of their code from `os_main.c` on
+real FatFs and `FileOps.c` over a RAM disk (27 checks): which folders are
+listed (wrong sizes, a missing picture, a JPEG named `.png`, an `@` name),
+that listing decodes nothing, saving and loading `theme.txt` (with CRLF,
+`@default`, a theme that is gone), a picture that fails to decode putting
+the previous theme back, and Delete App's data folders (Delete, Keep, a
+shared folder, `C.bin`, an app with no folder, a file already gone). The
+screens themselves have not been run in the harness, and no console result is
+recorded here.
 
 ## On the console
 
@@ -274,7 +344,13 @@ icon); an older pack is refused, and the menu then draws its built-in icons.
 4. Hold a tile, drag it, and let go somewhere else. Drag one onto the middle
    of another app to make a folder.
 5. Y on a tile: New Folder, Rename, Move to..., Remove Folder.
-6. Power off and back on: the arrangement is as you left it.
+6. Y on an SD app you can spare: Delete App. After the question the tile
+   goes, and the others close up. For Tetris with its sounds, a second
+   question offers `SD:/Aurora/Apps/TETRIS`; Keep leaves it.
+7. Put a theme folder in `SD:/Aurora/themes`, pick it in Settings > Theme,
+   then go back to Home and open an app and return: the pictures stay.
+   Choose Aurora to go back.
+8. Power off and back on: the arrangement and the theme are as you left them.
 
 | Symptom | Likely cause |
 |---------|--------------|
@@ -283,3 +359,6 @@ icon); an older pack is refused, and the menu then draws its built-in icons.
 | Every arrangement is lost at power-off | the file could not be written: is the card read-only? |
 | Icons look like plain shapes | an older `assets.pak` on the card (a boot message says it was not loaded) |
 | Return to Home in an app says "This app was built before Beta 7" | rebuild it with `sdk/aurcc.py` or `aurc`; HOME still works |
+| Settings > Theme says "No compatible themes found" | the folder is not directly in `SD:/Aurora/themes`, a file is not named `top.png` / `bottom.png`, is not a PNG, or is not exactly 400 x 240 / 320 x 240 |
+| "Could not delete the app" | the card is write-protected, or the file was already gone |
+| "Could not load this theme" | a picture's header says the right size but the data is damaged, or uses a PNG feature the decoder lacks (interlacing) |

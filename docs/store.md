@@ -205,6 +205,10 @@ the old copy is deleted once the new one is installed. The count is in the
 status bar, the Download updates section lists them, and Options > Check for
 updates asks the server first.
 
+An app deleted from the Home Menu (Y > Delete App) is no longer on the card,
+so aShop shows it as not installed and its page offers Download; its line in
+`installed.txt` stays until aShop installs it again and writes a new one.
+
 ## Apps in C
 
 Apps written with the C SDK ([`sdk/README.md`](../sdk/README.md)) are `AURC`

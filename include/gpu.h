@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0 */
 /* PICA200 GPU driver contract. The GPU is ARM11 I/O, so work is posted to the
- * ARM11 core (src/os/Gpu11.c) and answered in GpuShared. Only the PSC fill and
- * PPF transfer engines are implemented; see docs/gpu.md.
+ * ARM11 core (src/os/Gpu11.c) and answered in GpuShared: PSC fills, PPF
+ * transfers, presents, stereo and P3D command lists; see docs/gpu.md.
  *
  * LICENSE: This GPU code is licensed GPL-2.0 (not GPL-3.0 like the rest of
  * AuroraOS). Its register map and the init / fill / transfer sequences derive

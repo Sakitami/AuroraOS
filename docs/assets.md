@@ -160,6 +160,28 @@ Because the pack lives on the card, the payload only grew by about 5KB.
 The builder asserts that every payload survives an RLE round-trip, so a pack
 that writes successfully decodes correctly.
 
+## Themes
+
+The wallpaper is not drawn from the pack each frame. `ui_bg_build()` in
+`src/ui.c` composes it once per screen (the gradient with the pack's pattern
+tinted by the accent colour) into a cache at `0x25010000` (top, 288,000
+bytes) and `0x25060000` (bottom, 230,400 bytes), and every wallpaper paint is
+a copy from there. A theme from Settings > Theme (PR 24) fills that cache
+with pictures from the card instead: `ui_theme_load(top, bottom)` decodes
+`SD:/Aurora/themes/<Name>/top.png` and `bottom.png` with `image_load()`
+(through the image buffers at `0x25100000` and `0x26100000`), requires
+exactly 400x240 and 320x240, and writes them in the framebuffer's rotated
+B,G,R layout. While a theme is in use `ui_bg_build()` leaves the cache alone,
+so an accent change does not touch it; `ui_theme_clear()` goes back to the
+composed wallpaper. Settings checks a theme from the PNG headers alone
+(`image_probe()`), so only `ui_theme_load()` decodes. If a picture fails to
+decode after the top one was already copied in, `ui_theme_load()` drops the
+theme, and `theme_select()` in `src/os/os_main.c` loads the theme that was
+showing before, or leaves the built-in wallpaper to be composed at the next
+paint. The pack itself is unchanged by a theme: icons and fonts still come
+from it. The user side is in [`home.md`](home.md), "Wallpaper
+themes".
+
 ## Fonts and licensing
 
 The UI type is **Figtree**, SIL Open Font License 1.1, Copyright 2022 The

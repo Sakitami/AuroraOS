@@ -41,6 +41,11 @@ SD:\Aurora\Apps\C\<Name>\   each C app's data, made by Aurora
 * **aShop** ([`store.md`](store.md)) installs apps here too, C apps in
   `Aurora\Apps\C`, and the Home Menu shows a new one as soon as aShop closes,
   without a restart.
+* **Deleting**: Y on an app's tile > Delete App removes the `.bin` after
+  asking (PR 23), then offers to delete the app's data folder (the one
+  described under "Sound and other data files" below, or a C app's
+  `Apps\C\<Name>`), unless another app on the card uses the same folder
+  ([`home.md`](home.md)).
 
 Building an app and putting it in place:
 
@@ -280,6 +285,19 @@ The core cannot leave an app by itself: apps run with interrupts masked, so
 only their runtime can jump to the return stub. An app built before Beta 7
 has no `app_caps`, so its Return to Home says to press HOME instead; rebuild
 it to get the menu's action.
+
+### Closing the lid in an app
+
+The resident core turns the backlights off whenever the lid is closed (core
+120), app or not. Pausing the app is up to its runtime: the C SDK (1.3)
+waits in its button read (`pad()`, under every `hid_` call and `app_loop()`)
+and timed waits (`app_wait_ticks()`, behind `sys_sleep()` and the C
+library's sleeps), the Auric runtime at every built-in. App time stops
+meanwhile (`sys_millis()`, `clock()`, Auric's `millis()`), and buttons held
+as the lid opens are not new presses. Apps built before 2026-10-24, and code
+that loops without reading the buttons or waiting through the runtime, keep
+running behind the dark screens. See [`power.md`](power.md), "Closing the
+lid".
 
 ### After a crash
 

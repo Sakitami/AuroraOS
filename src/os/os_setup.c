@@ -179,7 +179,7 @@ static const char *const T[STR_COUNT][LANG_COUNT] = {
     {"Remove Folder", "Quitar carpeta",
      "Retirer le dossier"},
     /* STR_DELETE_APP   */ {"Delete App", "Eliminar app", "Supprimer l'app"},
-    /* STR_DELETE_APP_ASK */ {"Delete this app?", "¿Eliminar esta app?",
+    /* STR_DELETE_APP_ASK */ {"Delete this app?", "\u00BFEliminar esta app?",
                               "Supprimer cette application ?"},
     /* STR_DELETE_APP_FAILED */ {"Could not delete the app",
                                 "No se pudo eliminar la app",
@@ -1123,6 +1123,17 @@ static const char *const T[STR_COUNT][LANG_COUNT] = {
                          "Aucun th\u00E8me compatible"},
     /* STR_THEME_HINT */ {"A: Apply   B: Back", "A: Aplicar  B: Volver",
                           "A : Appliquer  B : Retour"},
+    /* STR_THEME_FAILED */ {"Could not load this theme",
+                            "No se pudo cargar este tema",
+                            "Impossible de charger ce th\u00E8me"},
+    /* STR_DELETE_DATA_ASK */ {"Delete its data too?",
+                               "\u00BFEliminar tambi\u00E9n sus datos?",
+                               "Supprimer aussi ses donn\u00E9es ?"},
+    /* STR_DELETE */ {"Delete", "Eliminar", "Supprimer"},
+    /* STR_KEEP */ {"Keep", "Conservar", "Conserver"},
+    /* STR_DELETE_DATA_FAILED */ {"Could not delete all of its data",
+                                  "No se pudieron eliminar todos sus datos",
+                                  "Impossible de tout supprimer"},
 };
 
 const char *L(StringId id) {

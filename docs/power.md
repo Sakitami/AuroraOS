@@ -72,6 +72,58 @@ Inside an app the system menu runs on the ARM11 core, so from core 118
 the ARM11. A change to either file changes the core, so it needs an
 `AUDIO_CORE_VERSION` bump.
 
+## Closing the lid
+
+Closing the shell turns both backlights off and holds the OS where it reads
+the buttons; opening it brings the light and the input back. It is a pause,
+not the console's sleep mode: the LCDs stay powered, both CPUs keep running
+(the ARM9 in a busy-wait loop), sound keeps playing, the Wi-Fi chip is left
+as it is, and the framebuffers are kept as they were. Added by PR 29
+(2026-10-24, core 120); its author reports that it works on a console, and no
+other result is recorded here.
+
+The lid sensor is GPIO1 bit 2 (`0x10147000`, 3dbrew's "Shell closed"),
+which reads 1 while the shell is closed. Both CPUs read it:
+
+* **The ARM11 core** (`core11_sleep_poll()` in `src/os/Core11.c`) checks it
+  every 32,768 passes of its command loop, about every 100-150 ms depending
+  on the clock, and on every button read of the in-app system menu. On a
+  close it remembers both panels' PWM duty and writes 0. On an open it puts
+  back the duties of the brightness level in use (`backlight11_refresh()`),
+  or the remembered ones if no level was ever sent. While closed,
+  `backlight11_refresh()` changes nothing, so a brightness command or a 2D/3D
+  switch is applied at the next open. The core goes on taking commands. It
+  does not look at the lid while it runs a long command (a Wi-Fi join, an
+  HTTP exchange, an `AUDIO_CMD_RUN11` job), so the light goes off when that
+  command ends.
+* **The ARM9** (`include/lid.h`): `aurora_lid_wait_open()` spins in steps
+  of 60,000 `nop`s until the lid opens. `get_keys()` in
+  `src/os/os_main.c` calls it, so every OS screen stops at its next button
+  read; so do long jobs whose cancel check reads the buttons (a file copy,
+  an aShop download between pieces, a terminal command). Whichever
+  `get_keys()` call waited sets a flag that the next `get_keys_down()` acts
+  on: it returns nothing and takes the buttons still held as already
+  pressed, so the hand that opens the console cannot press A by accident.
+  The OS's animations cap each frame's step, so they carry on smoothly.
+* **Apps** get the same wait from their runtime. The C SDK (1.3) waits in
+  `pad()` (`sdk/runtime/app_hid.c`, under every `hid_` read and so every
+  `app_loop()`) and in `app_wait_ticks()` (`sdk/runtime/app_sys.c`, behind
+  `sys_sleep()`, `sleep()`, `usleep()` and `nanosleep()`). The Auric runtime
+  waits in `aur_check_home()`, which every built-in calls, and in its button
+  read. Both stop the app's clock meanwhile: `app_ticks64()` (so
+  `sys_millis()`, `sys_micros()`, `clock()`, the frame pacing, `app_fps()`
+  and the SDK's waits) and Auric's `millis()` leave the closed time out, so
+  a game resumes where it was instead of seeing one huge frame. The SDK's
+  wait keeps reading the timer, so it sees the 32-bit count wrap however
+  long the lid stays shut. Wall-clock time (`time()`, `gettimeofday()`,
+  the RTC) is not affected. Buttons held as the lid opens are not new
+  presses in either runtime. An app built before this change keeps running
+  behind the dark screens; so does code that never reads the buttons or
+  waits through the runtime. Every app in this tree (`output/apps`,
+  `Games/Tetris.BIN`) was rebuilt with it on 2026-10-24.
+
+The firm's launcher does not watch the lid.
+
 ## Screen brightness
 
 Each panel's LCD block (`0x10202200` top, `0x10202A00` bottom; 3dbrew "LCD
@@ -167,7 +219,14 @@ read out.
 ## The About page
 
 **Settings > About** shows the version, the model, the battery, the free space
-on the card and the licence. Its **More Info** button opens a page laid out like
+on the card and the licence. The free space starts as "..." and is filled in
+when it is known: on a card whose FAT32 information sector holds no valid
+count, FatFs has to read the whole allocation table, which used to freeze the page
+for seconds on a large card. Since PR 21 the page keeps the card mounted
+while it is open and calls `f_getfree_step()` (added to `src/ff.c` and
+`include/ff.h`, beside FatFs's own `f_getfree()`) once per loop pass, for at
+most four FAT sectors, so B and More Info answer at once; the count is cached
+in the mounted volume when it completes. Its **More Info** button opens a page laid out like
 the stock System Settings, with the version, a software-update line that says
 there is none, the eMMC CID and the device; the bottom screen credits the team,
 with their faces from the asset pack (`PEOPLE` in `tools/mkassets.py`).

@@ -35,7 +35,7 @@
 extern "C" {
 #endif
 
-#define AURORA_SDK_VERSION "1.2"
+#define AURORA_SDK_VERSION "1.3"
 
 #define AURORA_PRINTF(fmt, args) __attribute__((format(printf, fmt, args)))
 
@@ -319,10 +319,11 @@ bool fs_mkdir(const char *path);
 /* True when the SD card can be read. */
 bool fs_available(void);
 
-/* Since the app started. */
+/* Since the app started, not counting time with the lid closed. */
 uint32_t sys_millis(void);
 uint64_t sys_micros(void);
-/* Waits, keeping HOME working; it does not show the screens. */
+/* Waits, keeping HOME working; it does not show the screens. With the lid
+ * closed it waits for it to open, and the time closed does not count. */
 void sys_sleep(uint32_t ms);
 
 typedef struct {
