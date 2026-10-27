@@ -231,6 +231,9 @@ enum { SKIP_OFF, SKIP_AUTO, SKIP_ON, SKIPS };
 static const char *const skip_names[SKIPS] = {"Off", "Auto", "On"};
 static int frame_skip = SKIP_AUTO;
 static bool sound_on = true;
+// Run the emulation on the ARM11 when the console can (see "The ARM11"); a
+// line arm11=0 in settings.txt keeps it on the ARM9, to compare.
+static bool arm11_allowed = true;
 // The menu goes dark after a while without a touch, and a tap brings it back.
 static bool screen_auto_off = true;
 
@@ -267,6 +270,8 @@ static void load_settings(void) {
       sound_on = v != 0;
     else if (sscanf(line, "screenoff=%d", &v) == 1)
       screen_auto_off = v != 0;
+    else if (sscanf(line, "arm11=%d", &v) == 1)
+      arm11_allowed = v != 0;
     else if (sscanf(line, "border=%d", &v) == 1 && v >= 0 && v < BORDERS)
       border = v;
   }
@@ -282,9 +287,9 @@ static void save_settings(void) {
     return;
   fprintf(f,
           "size=%d\npalette=%d\nframeskip=%d\nborder=%d\nsound=%d\n"
-          "screenoff=%d\n",
+          "screenoff=%d\narm11=%d\n",
           size_mode, palette, frame_skip, border, sound_on ? 1 : 0,
-          screen_auto_off ? 1 : 0);
+          screen_auto_off ? 1 : 0, arm11_allowed ? 1 : 0);
   fclose(f);
 }
 
@@ -501,6 +506,118 @@ static void set_callbacks(void) {
   gb.display.lcd_draw_line = draw_line;
   gb.direct.priv = NULL;
 }
+
+// --- The ARM11 -----------------------------------------------------------------
+
+// The emulation runs on the ARM11 when build.py has built the job
+// (arm11/job.c11) into gb11_blob.h, the app was started from the Home Menu,
+// and AuroraOS's core runs jobs (AUDIO_CMD_RUN11, core 116 on). Each Game Boy
+// frame is a job: Peanut-GB's CPU and drawing, and the APU's register writes,
+// on the ARM11 with its caches on (16 KB each, which take writes; the ARM9 has
+// 8 KB and 4 KB, which do not), at 804 MHz on a New 3DS. The ARM9 waits for
+// it, then makes the frame's sound and draws the top screen.
+//
+// The command block holds one command, and the SDK's presents use it too, so
+// a job is posted only when the core is idle and is waited for. Like the
+// APU's voice (sound.c), this goes through the SDK runtime's app_core_post()
+// and the OS's include/audio.h, neither of which is part of aurora_app.h.
+static const char *core_tag = "ARM9";
+
+#if defined(__arm__) && defined(__has_include)
+#if __has_include("gb11_blob.h")
+#define HAVE_ARM11 1
+#endif
+#endif
+
+#ifdef HAVE_ARM11
+#include "../include/audio.h"
+#include "arm11/gb11.h"
+#include "core.h"
+#include "gb11_blob.h"
+
+#define CLKCNT_804 5u // AUDIO_CMD_N3DS's mode for 804 MHz, as cpu-stress asks
+
+static bool use_arm11;
+static Gb11Job g11 __attribute__((aligned(32)));
+static int clock_restore = -1; // the mode to go back to on leaving
+
+// Cleans and invalidates the ARM9's whole data cache (4 KB: 32 sets of four
+// 32-byte lines), so what the ARM9 wrote is in memory for the ARM11, and
+// nothing it held is read stale after the ARM11 wrote it. In between the
+// ARM9 writes none of what the two share.
+static void dcache_flush(void) {
+  for (uint32_t set = 0; set < 0x400u; set += 0x20u)
+    for (uint32_t way = 0; way < 4u; way++)
+      __asm__ volatile("mcr p15, 0, %0, c7, c14, 2" ::"r"((way << 30) | set)
+                       : "memory");
+  __asm__ volatile("mcr p15, 0, %0, c7, c10, 4" ::"r"(0) : "memory");
+}
+
+static bool core_command(uint32_t cmd, uint32_t a0, uint32_t a1) {
+  bool ok;
+  dcache_flush();
+  ok = core_post(cmd, a0, a1, 0, 0); // see core.c: no command may be lost
+  dcache_flush();
+  return ok;
+}
+
+// A job answered but not run is posted once more, in case something else
+// made the core drop it. Why the last one failed, for the message.
+static const char *arm11_why;
+
+static bool arm11_run(void) {
+  for (int tries = 0; tries < 2; tries++) {
+    g11.ran = 0;
+    if (!core_command(AUDIO_CMD_RUN11, GB11_CODE, (uint32_t)&g11)) {
+      arm11_why = "The ARM11 did not answer: back on the ARM9";
+      return false;
+    }
+    if (g11.ran)
+      return true;
+  }
+  arm11_why = "The ARM11 skipped the frame twice: back on the ARM9";
+  return false;
+}
+
+static void arm11_init(void) {
+  volatile AudioCtrl *ct = (volatile AudioCtrl *)AUDIO_CTRL_ADDR;
+  if (!arm11_allowed || !app_from_home())
+    return;
+  dcache_flush();
+  if (ct->magic != AUDIO_MAGIC || ct->version < AUDIO_RUN11_VERSION)
+    return;
+  memcpy((void *)GB11_CODE, gb11_blob, sizeof(gb11_blob));
+  memset(&g11, 0, sizeof(g11));
+  // A first job that only reports how it was built: the two CPUs share the
+  // emulator's and the APU's state, so they must lay them out alike.
+  g11.probe = 1;
+  if (!arm11_run() || g11.gb_size != sizeof(gb) ||
+      g11.apu_size != sound_apu_size())
+    return;
+  g11.probe = 0;
+  use_arm11 = true;
+  core_tag = "ARM11 268";
+  if (sys_is_new3ds()) {
+    ct->n3ds_status = AUDIO_N3DS_PENDING;
+    if (core_command(AUDIO_CMD_N3DS, CLKCNT_804, 0)) {
+      if (ct->n3ds_status == AUDIO_N3DS_APPLIED)
+        clock_restore = (int)((ct->n3ds_before >> 16) & 7u);
+      if (ct->n3ds_status == AUDIO_N3DS_APPLIED ||
+          ct->n3ds_status == AUDIO_N3DS_ALREADY)
+        core_tag = "ARM11 804";
+    }
+  }
+}
+
+static void arm11_leave(void) {
+  if (clock_restore >= 0)
+    core_command(AUDIO_CMD_N3DS, (uint32_t)clock_restore, 0);
+  clock_restore = -1;
+}
+#else
+static void arm11_init(void) {}
+static void arm11_leave(void) {}
+#endif
 
 static bool save_state(void) {
   char path[FS_NAME_MAX + 64], dir[300];
@@ -978,6 +1095,10 @@ static void set_crash_msg(void) {
 // Runs as many Game Boy frames as the time since the last pass owes (the
 // display runs at 59.8 Hz, the Game Boy at 59.7), up to MAX_CATCHUP when the
 // ARM9 falls behind, and shows the newest.
+#ifdef HAVE_ARM11
+static void emulate11(int n);
+#endif
+
 static void emulate(uint32_t held) {
   uint64_t now = sys_micros();
   uint32_t elapsed = (uint32_t)(now - last_us);
@@ -997,6 +1118,12 @@ static void emulate(uint32_t held) {
     n = FAST_FRAMES;
 
   gb.direct.joypad = joypad(held);
+#ifdef HAVE_ARM11
+  if (use_arm11) {
+    emulate11(n);
+    goto draw;
+  }
+#endif
   if (EMU_SETJMP()) {
     crashed = paused = true;
     set_crash_msg();
@@ -1019,6 +1146,9 @@ static void emulate(uint32_t held) {
     }
     frames_this_second++;
   }
+#ifdef HAVE_ARM11
+draw:
+#endif
   if (frame_ready) {
     uint64_t t0 = sys_micros();
     frame_ready = false;
@@ -1035,6 +1165,53 @@ static void ms1(char *out, size_t max, uint32_t us) {
 
 static void draw_header(void);
 
+#ifdef HAVE_ARM11
+// The frames of a pass as ARM11 jobs, each followed by its sound on the ARM9.
+static void emulate11(int n) {
+  for (int i = 0; i < n; i++) {
+    uint64_t t0 = sys_micros(), t1;
+    bool ok;
+    g11.gb = &gb;
+    g11.rom = rom;
+    g11.rom_size = (uint32_t)rom_size;
+    g11.cart_ram = cart_ram;
+    g11.cart_ram_size = (uint32_t)cart_ram_size;
+    g11.apu = sound_apu();
+    g11.lcd = (uint8_t *)lcd;
+    g11.draw = !(frame_skip == SKIP_AUTO && i < n - 1);
+    ok = arm11_run();
+    set_callbacks(); // the ARM9's own, for its calls into Peanut-GB
+    t1 = sys_micros();
+    perf_gb_us += (uint32_t)(t1 - t0);
+    if (!ok) {
+      use_arm11 = false;
+      core_tag = "ARM9";
+      say(arm11_why);
+      return;
+    }
+    if (g11.error) {
+      emu_err = (enum gb_error_e)(g11.error - 1u);
+      emu_err_addr = (uint16_t)g11.error_addr;
+      crashed = paused = true;
+      set_crash_msg();
+      menu_wake();
+      return;
+    }
+    if (g11.ram_written) {
+      ram_dirty = true;
+      ram_changed_ms = sys_millis();
+    }
+    if (g11.frame_ready)
+      frame_ready = true;
+    if (sound_on) {
+      sound_frame();
+      perf_apu_us += (uint32_t)(sys_micros() - t1);
+    }
+    frames_this_second++;
+  }
+}
+#endif
+
 static void update_speed(void) {
   uint32_t now = sys_millis(), span = now - second_start_ms;
   int frames = frames_this_second;
@@ -1049,8 +1226,8 @@ static void update_speed(void) {
   ms1(apu_ms, sizeof(apu_ms), frames ? perf_apu_us / (uint32_t)frames : 0);
   ms1(draw_ms, sizeof(draw_ms), perf_passes ? perf_draw_us / perf_passes : 0);
   ms1(wait_ms, sizeof(wait_ms), perf_passes ? perf_wait_us / perf_passes : 0);
-  snprintf(perf_line, sizeof(perf_line), "GB %s  APU %s  draw %s  rest %s",
-           gb_ms, apu_ms, draw_ms, wait_ms);
+  snprintf(perf_line, sizeof(perf_line), "%s  GB %s  APU %s  draw %s  rest %s",
+           core_tag, gb_ms, apu_ms, draw_ms, wait_ms);
   frames_this_second = 0;
   perf_gb_us = perf_apu_us = perf_draw_us = perf_wait_us = perf_passes = 0;
   second_start_ms = now;
@@ -1295,6 +1472,7 @@ static bool lid_closed(void) {
 
 static void save_on_exit(void) {
   sound_stop(); // the voice would go on looping in the Home Menu
+  arm11_leave(); // the ARM11's clock as it was
   save_ram();
   save_settings();
 }
@@ -1306,6 +1484,7 @@ int main(void) {
   apply_palette();
   apply_size();
   atexit(save_on_exit);
+  arm11_init();
   scan_games();
   draw_top_idle();
 

@@ -3,22 +3,24 @@
 // over, while the ARM9 keeps writing ahead of it.
 //
 // The SDK plays whole WAV files only, so this posts the core's voice commands
-// itself, as the SDK's runtime does for snd_music(): through app_core_post()
-// and os_dcache_clean_range(), on voice 0 (the music voice, which this app
-// does not otherwise use). Those two functions and the command values below
-// (from include/audio.h) are the SDK's and the OS's internals, not part of
+// itself, as the SDK's runtime does for snd_music(): through core_post()
+// (core.c, over the SDK runtime's app_core_post()) and
+// os_dcache_clean_range(), on voice 0 (the music voice, which this app does
+// not otherwise use). Those two functions and the command values below (from
+// include/audio.h) are the SDK's and the OS's internals, not part of
 // aurora_app.h: if they change, this file has to follow.
 #include "sound.h"
+
+#include "core.h"
 
 #include <aurora_app.h>
 #include <string.h>
 #include <sys/time.h>
 
-// 275 samples a Game Boy frame, a little more than the voice plays (see
-// OUT_PER_US_Q32); the surplus is dropped as it builds up. The pitch is off by
-// 0.25%. Half the usual 32 kHz, to halve what the APU costs the ARM9.
-#define AUDIO_SAMPLE_RATE 16426
-#define MINIGB_APU_AUDIO_FORMAT_S16SYS
+// The sample rate (apu_config.h) gives 275 samples a Game Boy frame, a little
+// more than the voice plays (see OUT_PER_US_Q32); the surplus is dropped as it
+// builds up. The pitch is off by 0.25%.
+#include "apu_config.h"
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wsign-compare"
 #pragma GCC diagnostic ignored "-Wimplicit-fallthrough"
@@ -26,8 +28,6 @@
 #include "minigb_apu.inc"
 #pragma GCC diagnostic pop
 
-void app_core_post(uint32_t cmd, uint32_t a0, uint32_t a1, uint32_t a2,
-                   uint32_t a3);
 void os_dcache_clean_range(const void *addr, uint32_t len);
 
 #define CMD_VOICE      9u          // AUDIO_CMD_VOICE
@@ -72,6 +72,9 @@ void sound_write(uint16_t addr, uint8_t val) {
 }
 
 void sound_reset(void) { minigb_apu_audio_init(&apu); }
+
+void *sound_apu(void) { return &apu; }
+size_t sound_apu_size(void) { return sizeof(apu); }
 
 bool sound_playing(void) { return playing; }
 
@@ -129,7 +132,7 @@ bool sound_start(void) {
   os_dcache_clean_range(sound_ring, sizeof(sound_ring));
   wpos = LEAD; // what comes before is the silence just cleared
   lead_q4 = LEAD << 4;
-  app_core_post(CMD_VOICE,
+  core_post(CMD_VOICE,
                 VOICE | VOICE_LOOP | VOICE_PCM16 | VOICE_VOL(0x8000),
                 (uint32_t)(uintptr_t)sound_ring, sizeof(sound_ring), OUT_RATE);
   start_us = voice_us(); // the core has taken it: the voice is running
@@ -140,7 +143,7 @@ bool sound_start(void) {
 void sound_stop(void) {
   if (!playing)
     return;
-  app_core_post(CMD_VOICE_STOP, 1u << VOICE, 0, 0, 0);
+  core_post(CMD_VOICE_STOP, 1u << VOICE, 0, 0, 0);
   playing = false;
 }
 
